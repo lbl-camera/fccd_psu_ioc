@@ -16,7 +16,7 @@ test_requirements = ['pytest>=3', ]
 setup(
     author="Ronald J Pandolfi",
     author_email='ronpandolfi@lbl.gov',
-    python_requires='>=3.7',
+    python_requires='>=3.8',
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Developers',
