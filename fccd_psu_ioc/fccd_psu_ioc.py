@@ -1,81 +1,140 @@
-from caproto.server import PVGroup, SubGroup, get_pv_pair_wrapper, ioc_arg_parser, pvproperty, run
+"""
+NOTE: All lines commented with #* can be un-commented when deploying. They are commented to allow testing without a physical device
+"""
+import logging
+from dataclasses import dataclass
+from typing import List
+
+from caproto import ChannelType
+from caproto.server import PVGroup, SubGroup, ioc_arg_parser, pvproperty, run
 import pyvisa
+from humanfriendly.text import dedent
 
-from . import pvproperty_with_rbv
-
+from fccd_psu_ioc.utils import power_on, configure, power_off
 
 rm = pyvisa.ResourceManager()
 
-hmp2030_0_address = 'ASRL/dev/fcricps::INSTR'
-hmp2030_1_address = 'ASRL/dev/fiboptps::INSTR'
 
-hmp2030_0 = rm.open_resource(hmp2030_0_address)
-hmp2030_1 = rm.open_resource(hmp2030_1_address)
-
-## Output 2 (FCRIC 4.0V)
-hmp2030_1.write('INST:NSEL 2 \n')
-hmp2030_1.write('OUTP:SEL 1 \n')
-hmp2030_1.write('APPL 4.0,2.5 \n')  # V=4.0, I=2.5
-hmp2030_1.write('SOUR:VOLT:PROT 4.5 \n')
-hmp2030_1.write('SOUR:VOLT:STEP 0.2 \n')
-volt = float(hmp2030_1.query('SOUR:VOLT? \n'))
-curr = float(hmp2030_1.query('SOUR:CURR? \n'))
-vpro = float(hmp2030_1.query('SOUR:VOLT:PROT? \n'))
-print ('Out1 Set: %.4fV, %.4fA, %.4fV-OVP' %(volt, curr, vpro))
+logger = logging.getLogger('caproto')
 
 
-class FCCDPowerSupply(PVGroup):
+@dataclass
+class PSUChannel:
+    name: str
+    voltage: int
+    doc: str = ''
+    voltage_pv: pvproperty = None
+    current_pv: pvproperty = None
 
-    @SubGroup(prefix='psu1:')
-    class PSU1(PVGroup):
-        FCRICVoltage = pvproperty(dtype=float, doc='FCRIC Voltage', precision=4, units='V')
-        FCRICCurrent = pvproperty(dtype=float, doc='FCRIC Current', precision=4, units='A')
-        FCRICVoltageOVP = pvproperty(dtype=float, doc='FCRIC Voltage OVP', precision=4, units='V')
-        FIBOPTVoltage = pvproperty(dtype=float, doc='FIBOPT Voltage', precision=4, units='V')
-        FIBOPTCurrent = pvproperty(dtype=float, doc='FIBOPT Current', precision=4, units='A')
-        FIBOPTVoltageOVP = pvproperty(dtype=float, doc='FIBOPT Voltage OVP', precision=4, units='V')
 
-        @FCRICVoltage.getter
-        async def FCRICVoltage(self, instance, async_lib):
-            hmp2030_1.write('INST:NSEL 2 \n')
-            return hmp2030_1.query('MEAS:VOLT? \n')
+class _PSUChannel(PVGroup):
+    Voltage = pvproperty(dtype=float, precision=4, units='V', read_only=True)
+    Current = pvproperty(dtype=float, precision=4, units='A', read_only=True)
 
-        @FCRICCurrent.getter
-        async def FCRICCurrent(self, instance, async_lib):
-            hmp2030_1.write('INST:NSEL 2 \n')
-            return hmp2030_1.query('MEAS:CURR? \n')
 
-        @FIBOPTVoltage.getter
-        async def FIBOPTVoltage(self, instance, async_lib):
-            hmp2030_1.write('INST:NSEL 1 \n')
-            hmp2030_1.query('MEAS:VOLT? \n')
+class PSU(PVGroup):
+    resource_path = pvproperty(dtype=str)
 
-        @FIBOPTVoltage.getter
-        async def FIBOPTCurrent(self, instance, async_lib):
-            hmp2030_1.write('INST:NSEL 1 \n')
-            hmp2030_1.query('MEAS:CURR? \n')
+    def __init__(self, prefix, resource_path: str, channels: List[PSUChannel], **kwargs):
+        self.resource = rm.open_resource(resource_path)
 
-    @SubGroup(prefix='psu2:')
-    class PSU2(PVGroup):
-        Out1Voltage = pvproperty(dtype=float, doc='Out1 (15V) Voltage', precision=4, units='V')
-        Out1Current = pvproperty(dtype=float, doc='Out1 (15V) Current', precision=4, units='A')
+        super(PSU, self).__init__(prefix, **kwargs)
 
-        Out2Voltage = pvproperty(dtype=float, doc='Out2 (15V) Voltage', precision=4, units='V')
-        Out2Current = pvproperty(dtype=float, doc='Out2 (15V) Current', precision=4, units='A')
+        self.resource_path.pvspec._replace(value=resource_path)
+        self.channels = channels
 
-        Out3Voltage = pvproperty(dtype=float, doc='Out3 (30V) Voltage', precision=4, units='V')
-        Out3Current = pvproperty(dtype=float, doc='Out3 (30V) Current', precision=4, units='A')
+        for channel in channels:
+            pv_path = prefix + channel.name + ':'
+            channel_group = _PSUChannel(pv_path)
+            self.pvdb.update(channel_group.pvdb)
 
-        Out4Voltage = pvproperty(dtype=float, doc='Out4 (30V) Voltage', precision=4, units='V')
-        Out4Current = pvproperty(dtype=float, doc='Out4 (30V) Current', precision=4, units='A')
+    @resource_path.scan(period=1)
+    async def resource_path(self, instance, async_lib):
+        for i, channel in enumerate(self.channels):
+            self.resource.write(f'INST:NSEL {i + 1} \n')
+            voltage = float(self.resource.query('MEAS:VOLT? \n'))
+            current = float(self.resource.query('MEAS:CURR? \n'))
+            await self.pvdb[self.prefix + channel.name + ':Voltage'].write(voltage)
+            await self.pvdb[self.prefix + channel.name + ':Current'].write(current)
+
+
+class PSUs(PVGroup):
+    """
+
+    """
+    bias_clocks_psu = SubGroup(PSU,
+                        prefix='BiasClocksPSU:',
+                        resource_path='ASRL/dev/fiboptps::INSTR',  # NOTE: This path is MISLABELED, it is actually the bias and clocks
+                        channels=[PSUChannel('Out1', 15),
+                                  PSUChannel('Out2', 15),
+                                  PSUChannel('Out3', 30),
+                                  PSUChannel('Out4', 30)])
+
+    fcric_fops_psu = SubGroup(PSU,
+                          prefix='FCRICFOPSPSU:',
+                          resource_path='ASRL/dev/fcricps::INSTR',  # NOTE: This path is MISLABELED, it is actually the FCRIC and FOPS
+                          channels=[PSUChannel('Out1', 5),
+                                    PSUChannel('Out2', 4)])
+
+    def __init__(self, *args, **kwargs):
+        self.async_lib = None
+        super(PSUs, self).__init__(*args, **kwargs)
+        self.pvdb.update(self.bias_clocks_psu.pvdb)
+        self.pvdb.update(self.fcric_fops_psu.pvdb)
+
+    State = pvproperty(dtype=ChannelType.ENUM,
+                       enum_strings=["Unknown", "On", "Powering On...", "Powering Off...", "Off", ],
+                       value="Unknown")
+
+    @State.startup
+    async def State(self, instance, async_lib):
+        self.async_lib = async_lib
+
+    @State.putter
+    async def State(self, instance, value):
+        if value != instance.value:
+            logger.debug("setting state:", value)
+
+            if value == "Powering On...":
+                await self._power_on(None, None)
+
+            elif value == "Powering Off...":
+                await self._power_off(None, None)
+
+        return value
+
+    async def _power_on(self, instance, value):
+        configure(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
+        power_on(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
+        await self.async_lib.library.sleep(1)
+        await self.State.write('On')
+
+    async def _power_off(self, instance, value):
+        power_off(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
+        await self.async_lib.library.sleep(1)
+        await self.State.write('Off')
+
+    async def power_on(self, instance, value):
+        await self.State.write('Powering On...')
+
+    async def power_off(self, instance, value):
+        await self.State.write('Powering Off...')
+
+    On = pvproperty(value=0, dtype=int, put=power_on)
+    Off = pvproperty(value=0, dtype=int, put=power_off)
+
 
 def main():
     """Console script for fccd_psu_ioc."""
 
     ioc_options, run_options = ioc_arg_parser(
         default_prefix='ES7011:FastCCD:',
-        desc=dedent(FCCDPowerSupply.__doc__))
-    ioc = FCCDPowerSupply(**ioc_options)
-    #run(ioc.pvdb, **run_options)
+        desc=dedent(PSUs.__doc__))
+    ioc = PSUs(**ioc_options)
+    run(ioc.pvdb, **run_options)
 
     return 0
+
+
+if __name__ == '__main__':
+    main()
