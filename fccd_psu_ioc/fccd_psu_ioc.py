@@ -49,7 +49,7 @@ class PSU(PVGroup):
             channel_group = _PSUChannel(pv_path)
             self.pvdb.update(channel_group.pvdb)
 
-    @resource_path.scan(period=1)
+    @resource_path.scan(period=3)
     async def resource_path(self, instance, async_lib):
         async with com_lock:
             for i, channel in enumerate(self.channels):
