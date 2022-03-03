@@ -93,7 +93,7 @@ class PSUs(PVGroup):
     @State.putter
     async def State(self, instance, value):
         if value != instance.value:
-            logger.debug("setting state:", value)
+            logger.debug("setting state: {value}")
 
             if value == "Powering On...":
                 await self._power_on(None, None)
