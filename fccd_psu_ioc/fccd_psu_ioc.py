@@ -13,6 +13,7 @@ from humanfriendly.text import dedent
 from fccd_psu_ioc.utils import power_on, configure, power_off
 
 rm = pyvisa.ResourceManager()
+com_lock = None
 
 
 logger = logging.getLogger('caproto')
@@ -50,12 +51,13 @@ class PSU(PVGroup):
 
     @resource_path.scan(period=1)
     async def resource_path(self, instance, async_lib):
-        for i, channel in enumerate(self.channels):
-            self.resource.write(f'INST:NSEL {i + 1} \n')
-            voltage = float(self.resource.query('MEAS:VOLT? \n'))
-            current = float(self.resource.query('MEAS:CURR? \n'))
-            await self.pvdb[self.prefix + channel.name + ':Voltage'].write(voltage)
-            await self.pvdb[self.prefix + channel.name + ':Current'].write(current)
+        async with com_lock:
+            for i, channel in enumerate(self.channels):
+                self.resource.write(f'INST:NSEL {i + 1} \n')
+                voltage = float(self.resource.query('MEAS:VOLT? \n'))
+                current = float(self.resource.query('MEAS:CURR? \n'))
+                await self.pvdb[self.prefix + channel.name + ':Voltage'].write(voltage)
+                await self.pvdb[self.prefix + channel.name + ':Current'].write(current)
 
 
 class PSUs(PVGroup):
@@ -88,7 +90,9 @@ class PSUs(PVGroup):
 
     @State.startup
     async def State(self, instance, async_lib):
+        global com_lock
         self.async_lib = async_lib
+        com_lock = async_lib.library.locks.Lock()
 
     @State.putter
     async def State(self, instance, value):
@@ -104,21 +108,25 @@ class PSUs(PVGroup):
         return value
 
     async def _power_on(self, instance, value):
-        configure(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
-        power_on(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
-        await self.async_lib.library.sleep(1)
-        await self.State.write('On')
+        async with com_lock:
+            configure(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
+            power_on(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
+            await self.async_lib.library.sleep(1)
+            await self.State.write('On')
 
     async def _power_off(self, instance, value):
-        power_off(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
-        await self.async_lib.library.sleep(1)
-        await self.State.write('Off')
+        async with com_lock:
+            power_off(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
+            await self.async_lib.library.sleep(1)
+            await self.State.write('Off')
 
     async def power_on(self, instance, value):
-        await self.State.write('Powering On...')
+        async with com_lock:
+            await self.State.write('Powering On...')
 
     async def power_off(self, instance, value):
-        await self.State.write('Powering Off...')
+        async with com_lock:
+            await self.State.write('Powering Off...')
 
     On = pvproperty(value=0, dtype=int, put=power_on)
     Off = pvproperty(value=0, dtype=int, put=power_off)
