@@ -7,7 +7,7 @@ from setuptools import setup, find_packages
 with open('README.md') as readme_file:
     readme = readme_file.read()
 
-requirements = ['caproto']
+requirements = ['caproto', 'pyvisa', 'humanfriendly']
 
 setup_requirements = ['pytest-runner', ]
 
@@ -27,7 +27,7 @@ setup(
     description="A caproto-based IOC for control of the fastccd power supply",
     entry_points={
         'console_scripts': [
-            'fastccd_psu_ioc=fastccd_psu_ioc.fastccd_psu_ioc:main'
+            'fccd_psu_ioc=fccd_psu_ioc.fccd_psu_ioc:main'
         ],
     },
     extras_require={
@@ -37,13 +37,13 @@ setup(
     license="BSD license",
     long_description=readme,
     include_package_data=True,
-    keywords='fastccd_psu_ioc',
-    name='fastccd_psu_ioc',
-    packages=find_packages(include=['fastccd_psu_ioc', 'fastccd_psu_ioc.*']),
+    keywords='fccd_psu_ioc',
+    name='fccd_psu_ioc',
+    packages=find_packages(include=['fccd_psu_ioc', 'fccd_psu_ioc.*']),
     setup_requires=setup_requirements,
     test_suite='tests',
     tests_require=test_requirements,
-    url='https://github.com/lbl-camera/fastccd_psu_ioc',
+    url='https://github.com/lbl-camera/fccd_psu_ioc',
     version='0.1.0',
     zip_safe=False,
 )
