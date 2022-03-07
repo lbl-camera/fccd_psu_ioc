@@ -97,13 +97,13 @@ class PSUs(PVGroup):
     @State.putter
     async def State(self, instance, value):
         if value != instance.value:
-            logger.debug("setting state: {value}")
+            logger.debug(f"setting state: {value}")
 
             if value == "Powering On...":
-                await self._power_on(None, None)
+                value = await self._power_on(None, None)
 
             elif value == "Powering Off...":
-                await self._power_off(None, None)
+                value = await self._power_off(None, None)
 
         return value
 
@@ -112,21 +112,21 @@ class PSUs(PVGroup):
             configure(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
             power_on(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
             await self.async_lib.library.sleep(1)
-            await self.State.write('On')
+            logger.debug(f"Powered On")
+            return 'On'
 
     async def _power_off(self, instance, value):
         async with com_lock:
             power_off(self.bias_clocks_psu.resource, self.fcric_fops_psu.resource)
             await self.async_lib.library.sleep(1)
-            await self.State.write('Off')
+            logger.debug(f"Powered Off")
+            return 'Off'
 
     async def power_on(self, instance, value):
-        async with com_lock:
-            await self.State.write('Powering On...')
+        await self.State.write('Powering On...')
 
     async def power_off(self, instance, value):
-        async with com_lock:
-            await self.State.write('Powering Off...')
+        await self.State.write('Powering Off...')
 
     On = pvproperty(value=0, dtype=int, put=power_on)
     Off = pvproperty(value=0, dtype=int, put=power_off)
