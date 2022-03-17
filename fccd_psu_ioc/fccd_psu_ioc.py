@@ -66,7 +66,7 @@ class PSUs(PVGroup):
     """
     bias_clocks_psu = SubGroup(PSU,
                         prefix='BiasClocksPSU:',
-                        resource_path='ASRL/dev/fcricps::INSTR',  # NOTE: This path is MISLABELED, it is actually the bias and clocks
+                        resource_path='ASRL/dev/biasnclk::INSTR',  # NOTE: This path is MISLABELED, it is actually the bias and clocks
                         channels=[PSUChannel('Out1', 15),
                                   PSUChannel('Out2', 15),
                                   PSUChannel('Out3', 30),
@@ -74,7 +74,7 @@ class PSUs(PVGroup):
 
     fcric_fops_psu = SubGroup(PSU,
                           prefix='FCRICFOPSPSU:',
-                          resource_path='ASRL/dev/fiboptps::INSTR',  # NOTE: This path is MISLABELED, it is actually the FCRIC and FOPS
+                          resource_path='ASRL/dev/fcricnfopt::INSTR',  # NOTE: This path is MISLABELED, it is actually the FCRIC and FOPS
                           channels=[PSUChannel('Out1', 5),
                                     PSUChannel('Out2', 4)])
 
